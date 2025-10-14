@@ -1,8 +1,8 @@
 version: 0.0
 os: linux
 files:
-  # FIX: Setting the source back to 'Myapp/' to correctly match the path
-  # created by the buildspec_new.yml artifact structure.
+  # FIX: Change source to 'Myapp/' to correctly target the application code 
+  # contained within the 'Myapp' folder inside the artifact root.
   - source: Myapp/
     destination: /home/ec2-user/myapp
 permissions:
@@ -15,7 +15,7 @@ permissions:
       - directory
 hooks:
   ApplicationStop:
-    - location: scripts/stop_app.sh
+    - location: scripts/stop_server.sh
       timeout: 300
       runas: root
   BeforeInstall:
@@ -23,6 +23,6 @@ hooks:
       timeout: 300
       runas: root
   ApplicationStart:
-    - location: scripts/start_app.sh
+    - location: scripts/start_server.sh
       timeout: 300
       runas: ec2-user
