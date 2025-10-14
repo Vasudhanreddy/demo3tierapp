@@ -1,8 +1,8 @@
 version: 0.0
 os: linux
 files:
-  # FIX: Change source to 'Myapp/' to correctly target the application code 
-  # contained within the 'Myapp' folder inside the artifact root.
+  # CRITICAL FIX: The source: Myapp/ is assumed to be correct based on artifact analysis.
+  # CRITICAL FIX: Destination changed to lowercase 'myapp' to match all scripts.
   - source: Myapp/
     destination: /home/ec2-user/myapp
 permissions:
@@ -15,14 +15,19 @@ permissions:
       - directory
 hooks:
   ApplicationStop:
+    # Set to root as it performs system-level process management
     - location: scripts/stop_server.sh
       timeout: 300
       runas: root
+  # CRITICAL FIX: ADDED BeforeInstall hook to ensure the directory exists and has permissions
   BeforeInstall:
+    # Must run as root to ensure directory creation and chown is successful
     - location: scripts/change_permissions.sh
       timeout: 300
       runas: root
   ApplicationStart:
+    # CRITICAL FIX: Changed runas to 'ec2-user' to ensure PM2 state is correctly managed 
+    # and the app is started with the correct ownership.
     - location: scripts/start_server.sh
       timeout: 300
       runas: ec2-user
