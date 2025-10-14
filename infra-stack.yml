@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Complete stack for a simple web application with VPC, RDS, and EC2.
+Description: Complete stack for a simple web application with VPC, RDS, and EC2 across multiple AZs.
 
 Parameters:
   KeyName:
@@ -8,162 +8,245 @@ Parameters:
   DBPassword:
     Type: String
     NoEcho: true
-    Description: Password for the RDS master user. Min 8 characters.
+    Description: Password for the RDS master user. Minimum 8 characters.
 
 Resources:
   # NETWORK #
   VPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: '10.0.0.0/16'
+      CidrBlock: 10.0.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
-      Tags: [{ Key: Name, Value: 'MyApp-VPC' }]
+      Tags:
+        - Key: Name
+          Value: MyApp-VPC
+
   InternetGateway:
     Type: AWS::EC2::InternetGateway
+
   VPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
-  PublicSubnet:
+
+  # --- Public Subnets (2 AZs) ---
+  PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: '10.0.1.0/24'
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
       MapPublicIpOnLaunch: true
-      Tags: [{ Key: Name, Value: 'MyApp-Public-Subnet' }]
-  PrivateSubnet:
+      Tags:
+        - Key: Name
+          Value: MyApp-Public-Subnet-1
+
+  PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: '10.0.10.0/24'
-      Tags: [{ Key: Name, Value: 'MyApp-Private-Subnet' }]
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: MyApp-Public-Subnet-2
+
+  # --- Private Subnets (2 AZs) ---
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: MyApp-Private-Subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.20.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: MyApp-Private-Subnet-2
+
+  # --- Routing ---
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
+
   PublicRoute:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: '0.0.0.0/0'
+      DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
-  PublicSubnetRouteTableAssociation:
+
+  PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !Ref PublicSubnet1
       RouteTableId: !Ref PublicRouteTable
-  
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
   # SECURITY GROUPS #
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: 'Allow HTTP from anywhere'
+      GroupDescription: Allow HTTP from anywhere
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: '0.0.0.0/0' }
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: 'Allow HTTP from ALB'
+      GroupDescription: Allow HTTP from ALB
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, SourceSecurityGroupId: !Ref ALBSecurityGroup }
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: 'Allow MySQL traffic from App servers'
+      GroupDescription: Allow MySQL traffic from App servers
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - { IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref AppSecurityGroup }
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref AppSecurityGroup
 
   # DATABASE #
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupDescription: 'Subnet group for RDS'
-      SubnetIds: [!Ref PrivateSubnet]
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
   RDSInstance:
     Type: AWS::RDS::DBInstance
     Properties:
-      DBName: 'webappdb'
-      Engine: 'mysql'
-      MasterUsername: 'masteruser'
+      DBName: webappdb
+      Engine: mysql
+      MasterUsername: masteruser
       MasterUserPassword: !Ref DBPassword
-      DBInstanceClass: 'db.t3.micro'
-      AllocatedStorage: '20'
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
       DBSubnetGroupName: !Ref DBSubnetGroup
-      VPCSecurityGroups: [!Ref DBSecurityGroup]
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
       PubliclyAccessible: false
+      MultiAZ: false
 
   # APPLICATION SERVERS #
   EC2InstanceRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Statement: [{ Effect: Allow, Principal: { Service: 'ec2.amazonaws.com' }, Action: 'sts:AssumeRole' }]
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
       ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
-        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy'
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy
+
   EC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
-    Properties: { Roles: [!Ref EC2InstanceRole] }
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
       LaunchTemplateData:
-        ImageId: 'ami-0c55b159cbfafe1f0' # Amazon Linux 2 AMI (us-east-1), change if needed
-        InstanceType: 't2.micro'
+        ImageId: ami-052064a798f08f0d3 # Amazon Linux 2023 x86 (us-east-1)
+        InstanceType: t3.micro
         KeyName: !Ref KeyName
-        IamInstanceProfile: { Arn: !GetAtt EC2InstanceProfile.Arn }
-        SecurityGroupIds: [!Ref AppSecurityGroup]
-        UserData:
-          Fn::Base64: |
-            #!/bin/bash
-            yum update -y
-            # Install Node.js, PM2, and CodeDeploy Agent
-            curl -sL https://rpm.nodesource.com/setup_16.x | bash -
-            yum install -y nodejs
-            npm install pm2 -g
-            yum install -y ruby wget
-            cd /home/ec2-user
-            wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
-            chmod +x ./install
-            ./install auto
-            # Allow ec2-user to use pm2
-            chown -R ec2-user:ec2-user /home/ec2-user/.pm2
+        IamInstanceProfile:
+          Arn: !GetAtt EC2InstanceProfile.Arn
+        SecurityGroupIds:
+          - !Ref AppSecurityGroup
+        UserData: !Base64 |
+          #!/bin/bash
+          yum update -y
+          # Install Node.js, PM2, and CodeDeploy Agent
+          curl -sL https://rpm.nodesource.com/setup_16.x | bash -
+          yum install -y nodejs ruby wget
+          npm install pm2 -g
+          cd /home/ec2-user
+          wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
+          chmod +x ./install
+          ./install auto
+          chown -R ec2-user:ec2-user /home/ec2-user/.pm2
+
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Subnets: [!Ref PublicSubnet]
-      SecurityGroups: [!Ref ALBSecurityGroup]
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: !Ref VPC
       Port: 80
-      Protocol: 'HTTP'
-      HealthCheckPath: '/health'
+      Protocol: HTTP
+      HealthCheckPath: /health
+
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
-      DefaultActions: [{ Type: 'forward', TargetGroupArn: !Ref ALBTargetGroup }]
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
-      Protocol: 'HTTP'
+      Protocol: HTTP
+
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       MinSize: '1'
       MaxSize: '1'
       DesiredCapacity: '1'
-      VPCZoneIdentifier: [!Ref PrivateSubnet]
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
       LaunchTemplate:
         LaunchTemplateId: !Ref LaunchTemplate
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
-      TargetGroupARNs: [!Ref ALBTargetGroup]
-      Tags: [{ Key: Name, Value: 'MyApp-Instance', PropagateAtLaunch: true }]
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+      Tags:
+        - Key: Name
+          Value: MyApp-Instance
+          PropagateAtLaunch: true
 
 Outputs:
   LoadBalancerDNS:
