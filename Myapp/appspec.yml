@@ -1,14 +1,26 @@
 version: 0.0
 os: linux
 files:
-  - source: /
-    destination: /home/ec2-user/Myapp
+  - source: / # <-- CodeDeploy copies the contents of the root folder of the artifact (i.e., the contents of Myapp)
+    destination: /home/ec2-user/myapp
+permissions:
+  - object: /home/ec2-user/myapp
+    pattern: "**"
+    owner: ec2-user
+    group: ec2-user
+    type:
+      - file
+      - directory
 hooks:
-  ApplicationStart:
-    - location: scripts/start_server.sh
-      timeout: 300
-      runas: root
   ApplicationStop:
-    - location: scripts/stop_server.sh
+    - location: scripts/stop_app.sh
       timeout: 300
       runas: root
+  BeforeInstall:
+    - location: scripts/change_permissions.sh
+      timeout: 300
+      runas: root
+  ApplicationStart:
+    - location: scripts/start_app.sh
+      timeout: 300
+      runas: ec2-user
