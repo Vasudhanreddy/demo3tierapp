@@ -1,30 +1,31 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------
-# change_permissions.sh
-# CodeDeploy BeforeInstall Hook Script
-#
-# This script ensures the target application directory exists and sets the
-# correct ownership (ec2-user) and permissions before the new files are
-# copied by the CodeDeploy agent.
+# change_permissions.sh (CRITICAL FIX)
+# This script ensures the target directory is clean and properly owned,
+# fixing the "Not a directory" error caused by stale files.
 # -----------------------------------------------------------------------------
 
 APP_DIR="/home/ec2-user/myapp"
 APP_USER="ec2-user"
 
-echo "Checking and setting up application directory: ${APP_DIR}"
+echo "CRITICAL: Cleaning up any stale file/directory at ${APP_DIR}."
 
-# 1. Create the application directory if it does not exist
-if [ ! -d "$APP_DIR" ]; then
-    echo "Directory ${APP_DIR} does not exist. Creating it now."
-    mkdir -p "$APP_DIR"
+# 1. CRITICAL STEP: Remove any existing file or directory at the target path.
+# This fixes the "Not a directory" error if a file named 'myapp' exists.
+if [ -e "$APP_DIR" ]; then
+    echo "Stale entry found at ${APP_DIR}. Deleting it now."
+    rm -rf "$APP_DIR"
 fi
 
-# 2. Set ownership recursively to ec2-user
-# This is crucial for subsequent scripts (ApplicationStart) run as 'ec2-user'
+# 2. Create the application directory
+echo "Creating clean application directory: ${APP_DIR}"
+mkdir -p "$APP_DIR"
+
+# 3. Set ownership recursively to ec2-user
 echo "Setting ownership of ${APP_DIR} to ${APP_USER}:${APP_USER}"
 chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 
-# 3. Set read/write/execute permissions for the owner, and read/execute for others
+# 4. Set read/write/execute permissions for the owner
 echo "Setting directory permissions."
 chmod -R 755 "$APP_DIR"
 
