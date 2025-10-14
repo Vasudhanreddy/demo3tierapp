@@ -1,7 +1,10 @@
 version: 0.0
 os: linux
 files:
-  - source: / # <-- CodeDeploy copies the contents of the root folder of the artifact (i.e., the contents of Myapp)
+  # FIX: Changing source from 'Myapp/' to '/' to assume the contents of Myapp
+  # are already at the root of the CodeBuild artifact zip file.
+  # This should force the copy of app.js, package.json, and the scripts folder.
+  - source: /
     destination: /home/ec2-user/myapp
 permissions:
   - object: /home/ec2-user/myapp
