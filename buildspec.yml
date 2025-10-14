@@ -1,23 +1,32 @@
 version: 0.2
-
 phases:
+  install:
+    commands:
+      # Install dependencies first
+      - echo "Starting install phase..."
+      - npm install
+
   pre_build:
     commands:
       # This command tells CodeBuild to move into your application folder
+      - echo "Changing directory to MyApp"
       - cd MyApp
+
   build:
     commands:
-      # Now it can find package.json and install dependencies
-      - echo "Build started inside `pwd`"
-      - npm install
+      # Run the actual build script
+      - echo "Running application build..."
+      - npm run build 
+      # OR, if you don't have a 'build' script in package.json, use:
+      # - npm test
+
   post_build:
     commands:
       - echo "Build completed."
 
 artifacts:
   # This tells CodeBuild that your final application files are inside the MyApp folder
-  base-directory: 'MyApp'
+  base-directory: 'MyApp/build' # Assuming your 'npm run build' outputs to a 'build' folder inside 'MyApp'
   files:
-    # This packages up everything inside the MyApp folder for the next stage (CodeDeploy)
+    # This packages up everything inside the MyApp/build folder for the next stage (CodeDeploy)
     - '**/*'
-
