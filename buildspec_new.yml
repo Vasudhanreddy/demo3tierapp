@@ -2,9 +2,31 @@ version: 0.2
 phases:
   install:
     commands:
-      # CodeBuild should run this first:
+      # CRITICAL FIX: Change directory FIRST before installing dependencies.
       - echo "Changing directory to Myapp"
       - cd Myapp
       - echo "Starting npm install..."
-      - npm install
-# ... (rest of the file defining pre_build, build, post_build, and artifacts)
+      - npm install # Install dependencies inside the Myapp folder.
+
+  pre_build:
+    commands:
+      # This is now running inside the Myapp folder.
+      - echo "Pre-build checks complete." 
+      
+  build:
+    commands:
+      # Execute the build command from the package.json inside Myapp/
+      - echo "Running application build (npm run build)..."
+      - npm run build
+      
+  post_build:
+    commands:
+      - echo "Build completed."
+
+artifacts:
+  # The base-directory must be relative to the directory where the build command ran (Myapp).
+  # Assuming 'npm run build' outputs files into a 'build' folder *inside* 'Myapp'.
+  base-directory: 'build' 
+  files:
+    # This packages up everything inside the Myapp/build folder
+    - '**/*'
