@@ -1,58 +1,49 @@
 #!/bin/bash
+# -----------------------------------------------------------------------------
 # start_server.sh
-# CodeDeploy ApplicationStart Hook Script (Run as ec2-user)
-#
-# This script fetches database credentials from AWS SSM, sets them as
-# environment variables, and starts the Node.js application using PM2.
-#
-# Note: npm install should typically run during the CodeBuild stage,
-# but it is kept here for deployment simplicity if dependencies change.
+# CodeDeploy ApplicationStart Hook Script
+# Deletes old process, fetches environment variables from SSM, and starts
+# the Node.js application using PM2 (for robust process management).
+# -----------------------------------------------------------------------------
 
 APP_DIR="/home/ec2-user/myapp"
-# Ensure common path is available for tools like 'aws'
-export PATH=$PATH:/usr/bin:/usr/local/bin
 
-echo "--- Starting Application (PID: $$) ---"
+# 1. Change to the application directory
 cd $APP_DIR
 
-# 1. Fetch DB Credentials from AWS Parameter Store (Requires IAM permissions)
+# 2. Define SSM Parameter Store names (These must exist in your AWS Parameter Store)
+# NOTE: The EC2 Instance Profile MUST have 'ssm:GetParameter' permission.
+DB_HOST_PARAM="/MyApp/DB_HOST"
+DB_USER_PARAM="/MyApp/DB_USER"
+DB_PASS_PARAM="/MyApp/DB_PASSWORD"
+
+# 3. Fetch environment variables from SSM
+# Use 'sudo su - ec2-user' to ensure PM2 is found and run as the correct user if the script fails to run as 'ec2-user' from appspec
+# However, since appspec.yml has runas: ec2-user, we run directly.
 echo "Fetching DB Credentials from SSM..."
-# Use correct region if environment variable is available
-AWS_REGION=${AWS_REGION:-us-east-1}
+export DB_HOST=$(aws ssm get-parameter --name "$DB_HOST_PARAM" --query "Parameter.Value" --output text)
+export DB_USER=$(aws ssm get-parameter --name "$DB_USER_PARAM" --query "Parameter.Value" --output text)
+# Note: Use --with-decryption for SecureString passwords
+export DB_PASSWORD=$(aws ssm get-parameter --name "$DB_PASS_PARAM" --with-decryption --query "Parameter.Value" --output text)
 
-# Fetch secrets using AWS CLI
-DB_HOST=$(aws ssm get-parameter --name "/MyApp/DB_HOST" --query "Parameter.Value" --output text --region $AWS_REGION)
-DB_USER=$(aws ssm get-parameter --name "/MyApp/DB_USER" --query "Parameter.Value" --output text --region $AWS_REGION)
-DB_PASSWORD=$(aws ssm get-parameter --name "/MyApp/DB_PASSWORD" --with-decryption --query "Parameter.Value" --output text --region $AWS_REGION)
-
-# Basic error checking for secrets retrieval
+# Check for successful retrieval
 if [ -z "$DB_HOST" ]; then
-    echo "ERROR: DB_HOST (SSM) retrieval failed or returned empty value. Exiting."
+    echo "ERROR: DB_HOST environment variable is empty. Failed to retrieve SSM parameters."
     exit 1
 fi
 
-echo "DB Host retrieved successfully."
+# 4. Install dependencies (Crucial for the first run if node_modules wasn't deployed)
+echo "Installing application dependencies..."
+npm install
 
-# 2. Set Environment Variables
-export DB_HOST=$DB_HOST
-export DB_USER=$DB_USER
-export DB_PASSWORD=$DB_PASSWORD
-export PORT=3000 # Example port, adjust as needed
+# 5. Start the application with PM2, passing environment variables
+echo "Starting application with PM2..."
 
-# 3. Optional: Install Dependencies (Only if not done in CodeBuild)
-# If you are still having issues with missing node_modules, uncomment this line:
-# echo "Running npm install..."
-# npm install
+# PM2 START Command
+# --name: Process name
+# --update-env: Updates environment variables on restart
+# -- start app.js: The actual command to run, separated by --
+pm2 start app.js --name "MyWebApp" --update-env --
+pm2 save
 
-# 4. Start the application using PM2
-echo "Stopping any previous PM2 instance of MyWebApp..."
-# Use /usr/bin/env to ensure PM2 is found in the shell's PATH
-/usr/bin/env pm2 stop MyWebApp || true
-
-echo "Starting app.js with PM2..."
-/usr/bin/env pm2 start app.js --name "MyWebApp" --update-env
-
-# Save the process list for persistence across reboots
-/usr/bin/env pm2 save
-
-echo "--- Application Start Complete ---"
+echo "Application startup script finished."
