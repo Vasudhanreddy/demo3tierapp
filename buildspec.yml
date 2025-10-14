@@ -10,7 +10,7 @@ phases:
     commands:
       # This command tells CodeBuild to move into your application folder
       - echo "Changing directory to MyApp"
-      - cd MyApp
+      - cd Myapp
 
   build:
     commands:
@@ -26,7 +26,7 @@ phases:
 
 artifacts:
   # This tells CodeBuild that your final application files are inside the MyApp folder
-  base-directory: 'MyApp/build' # Assuming your 'npm run build' outputs to a 'build' folder inside 'MyApp'
+  base-directory: 'Myapp/build' # Assuming your 'npm run build' outputs to a 'build' folder inside 'MyApp'
   files:
     # This packages up everything inside the MyApp/build folder for the next stage (CodeDeploy)
     - '**/*'
