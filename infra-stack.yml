@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Complete stack for a simple web application with VPC, RDS, and EC2.
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of your EC2 KeyPair for SSH access.
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Password for the RDS master user. Min 8 characters.
+
+Resources:
+  # NETWORK #
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: '10.0.0.0/16'
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: 'MyApp-VPC' }]
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: '10.0.1.0/24'
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: 'MyApp-Public-Subnet' }]
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: '10.0.10.0/24'
+      Tags: [{ Key: Name, Value: 'MyApp-Private-Subnet' }]
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+  
+  # SECURITY GROUPS #
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Allow HTTP from anywhere'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: '0.0.0.0/0' }
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Allow HTTP from ALB'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, SourceSecurityGroupId: !Ref ALBSecurityGroup }
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Allow MySQL traffic from App servers'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref AppSecurityGroup }
+
+  # DATABASE #
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: 'Subnet group for RDS'
+      SubnetIds: [!Ref PrivateSubnet]
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: 'webappdb'
+      Engine: 'mysql'
+      MasterUsername: 'masteruser'
+      MasterUserPassword: !Ref DBPassword
+      DBInstanceClass: 'db.t3.micro'
+      AllocatedStorage: '20'
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: [!Ref DBSecurityGroup]
+      PubliclyAccessible: false
+
+  # APPLICATION SERVERS #
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement: [{ Effect: Allow, Principal: { Service: 'ec2.amazonaws.com' }, Action: 'sts:AssumeRole' }]
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy'
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: { Roles: [!Ref EC2InstanceRole] }
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: 'ami-0c55b159cbfafe1f0' # Amazon Linux 2 AMI (us-east-1), change if needed
+        InstanceType: 't2.micro'
+        KeyName: !Ref KeyName
+        IamInstanceProfile: { Arn: !GetAtt EC2InstanceProfile.Arn }
+        SecurityGroupIds: [!Ref AppSecurityGroup]
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            yum update -y
+            # Install Node.js, PM2, and CodeDeploy Agent
+            curl -sL https://rpm.nodesource.com/setup_16.x | bash -
+            yum install -y nodejs
+            npm install pm2 -g
+            yum install -y ruby wget
+            cd /home/ec2-user
+            wget https://aws-codedeploy-us-east-1.s3.us-east-1.amazonaws.com/latest/install
+            chmod +x ./install
+            ./install auto
+            # Allow ec2-user to use pm2
+            chown -R ec2-user:ec2-user /home/ec2-user/.pm2
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets: [!Ref PublicSubnet]
+      SecurityGroups: [!Ref ALBSecurityGroup]
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 80
+      Protocol: 'HTTP'
+      HealthCheckPath: '/health'
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions: [{ Type: 'forward', TargetGroupArn: !Ref ALBTargetGroup }]
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: 'HTTP'
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      VPCZoneIdentifier: [!Ref PrivateSubnet]
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      TargetGroupARNs: [!Ref ALBTargetGroup]
+      Tags: [{ Key: Name, Value: 'MyApp-Instance', PropagateAtLaunch: true }]
+
+Outputs:
+  LoadBalancerDNS:
+    Description: The DNS name of the Application Load Balancer
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  DBEndpoint:
+    Description: The connection endpoint for the RDS database
+    Value: !GetAtt RDSInstance.Endpoint.Address
