@@ -2,22 +2,20 @@ version: 0.2
 phases:
   install:
     commands:
-      # CRITICAL FIX: Change directory FIRST before installing dependencies.
+      # Step 1: Change directory to the application folder BEFORE installing dependencies.
       - echo "Changing directory to Myapp"
       - cd Myapp
-      - echo "Starting install phase (inside Myapp/)..."
-      - npm install # This now correctly runs inside the Myapp folder.
+      - echo "Starting npm install..."
+      - npm install # Install dependencies inside the Myapp folder.
 
   pre_build:
     commands:
-      # Optional: Run tests or any pre-build checks here. 
-      # The container is still inside the Myapp folder at this point.
       - echo "Pre-build checks complete." 
       
   build:
     commands:
-      # Run the actual build script
-      - echo "Running application build..."
+      # Step 2: Run the actual build script
+      - echo "Running application build (npm run build)..."
       - npm run build
       
   post_build:
@@ -25,9 +23,7 @@ phases:
       - echo "Build completed."
 
 artifacts:
-  # The base-directory is relative to the directory where the last command ran (Myapp/).
-  # Assuming 'npm run build' outputs to a 'build' folder inside 'Myapp'.
-  base-directory: 'build' 
+  # The output artifact is the 'build' folder created by 'npm run build' inside Myapp.
+  base-directory: 'Myapp/build' 
   files:
-    # This packages up everything inside the 'Myapp/build' folder
     - '**/*'
