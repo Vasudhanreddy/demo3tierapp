@@ -1,38 +1,32 @@
 version: 0.0
 os: linux
 files:
-  # CRITICAL FIX 1: Explicitly set the source path to 'Myapp/' to match CodeBuild's base-directory.
-  - source: Myapp/
-    # CRITICAL FIX 2: Ensure destination path is lowercase 'myapp' to match scripts.
+  # FINAL CRITICAL FIX: The source path MUST be '/' to match the buildspec 'discard-paths: yes'.
+  # CodeDeploy will copy the contents of the ZIP root to the destination.
+  - source: /
     destination: /home/ec2-user/myapp
-    
 permissions:
-  # This block explicitly sets ownership and permissions on the deployed files.
   - object: /home/ec2-user/myapp
     pattern: "**"
     owner: ec2-user
     group: ec2-user
-    # Explicitly grant permissions to files and directories
-    mode: 755
     type:
       - file
       - directory
 
 hooks:
-  # REQUIRED: Set permissions before files are copied (runs the cleanup script).
   BeforeInstall:
-    - location: scripts/change_permissions.sh
-      timeout: 60
-      runas: root 
-      
+    # CRITICAL FIX: Script path MUST include Myapp/ prefix to match the artifact structure
+    - location: Myapp/scripts/change_permissions.sh
+      timeout: 300
+      runas: root
   ApplicationStop:
-    # CRITICAL FIX 3: Must run as ec2-user to stop the PM2 process it started
-    - location: scripts/stop_server.sh
+    # CRITICAL FIX: Script path MUST include Myapp/ prefix
+    - location: Myapp/scripts/stop_app.sh
       timeout: 300
       runas: ec2-user
-      
   ApplicationStart:
-    # CRITICAL FIX 4: Must run as ec2-user so npm, pm2, and aws use the correct environment and paths
-    - location: scripts/start_server.sh
+    # CRITICAL FIX: Script path MUST include Myapp/ prefix AND run as ec2-user
+    - location: Myapp/scripts/start_app.sh
       timeout: 300
       runas: ec2-user
