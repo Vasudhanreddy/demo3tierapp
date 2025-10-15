@@ -1,49 +1,43 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------
-# start_server.sh
-# CodeDeploy ApplicationStart Hook Script
-# Deletes old process, fetches environment variables from SSM, and starts
-# the Node.js application using PM2 (for robust process management).
+# start_server.sh (Updated & Recommended Version)
+# Combines robust error checking with correct user permissions and region settings.
 # -----------------------------------------------------------------------------
 
+# --- CONFIGURATION ---
 APP_DIR="/home/ec2-user/myapp"
+# !! IMPORTANT: Set this to your AWS region, e.g., "us-east-1", "eu-west-2", etc. !!
+AWS_REGION="us-east-1"
 
-# 1. Change to the application directory
-cd $APP_DIR
+# --- SCRIPT START ---
+echo "Running ApplicationStart hook script..."
+cd $APP_DIR || { echo "ERROR: Failed to change to directory $APP_DIR"; exit 1; }
 
-# 2. Define SSM Parameter Store names (These must exist in your AWS Parameter Store)
-# NOTE: The EC2 Instance Profile MUST have 'ssm:GetParameter' permission.
-DB_HOST_PARAM="/MyApp/DB_HOST"
-DB_USER_PARAM="/MyApp/DB_USER"
-DB_PASS_PARAM="/MyApp/DB_PASSWORD"
+# 1. Fetch environment variables from SSM Parameter Store
+echo "Fetching DB Credentials from SSM in region $AWS_REGION..."
+export DB_HOST=$(aws ssm get-parameter --name "/MyApp/DB_HOST" --query "Parameter.Value" --output text --region $AWS_REGION)
+export DB_USER=$(aws ssm get-parameter --name "/MyApp/DB_USER" --query "Parameter.Value" --output text --region $AWS_REGION)
+export DB_PASSWORD=$(aws ssm get-parameter --name "/MyApp/DB_PASSWORD" --with-decryption --query "Parameter.Value" --output text --region $AWS_REGION)
 
-# 3. Fetch environment variables from SSM
-# Use 'sudo su - ec2-user' to ensure PM2 is found and run as the correct user if the script fails to run as 'ec2-user' from appspec
-# However, since appspec.yml has runas: ec2-user, we run directly.
-echo "Fetching DB Credentials from SSM..."
-export DB_HOST=$(aws ssm get-parameter --name "$DB_HOST_PARAM" --query "Parameter.Value" --output text)
-export DB_USER=$(aws ssm get-parameter --name "$DB_USER_PARAM" --query "Parameter.Value" --output text)
-# Note: Use --with-decryption for SecureString passwords
-export DB_PASSWORD=$(aws ssm get-parameter --name "$DB_PASS_PARAM" --with-decryption --query "Parameter.Value" --output text)
-
-# Check for successful retrieval
-if [ -z "$DB_HOST" ]; then
-    echo "ERROR: DB_HOST environment variable is empty. Failed to retrieve SSM parameters."
+# 2. Check for successful parameter retrieval
+if [ -z "$DB_HOST" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASSWORD" ]; then
+    echo "ERROR: One or more SSM parameters could not be retrieved. Deployment failed."
+    # A non-zero exit code tells CodeDeploy the script failed.
     exit 1
 fi
+echo "Successfully fetched DB credentials."
 
-# 4. Install dependencies (Crucial for the first run if node_modules wasn't deployed)
-echo "Installing application dependencies..."
+# 3. Install/update application dependencies
+echo "Installing application dependencies with npm..."
 npm install
 
-# 5. Start the application with PM2, passing environment variables
-echo "Starting application with PM2..."
+# 4. Start the application as the 'ec2-user' to avoid running as root
+echo "Starting application with PM2 as ec2-user..."
+# Using 'sudo -u ec2-user' is the best practice to run the app as a non-privileged user
+sudo -u ec2-user pm2 start app.js --name "MyWebApp" --update-env
+sudo -u ec2-user pm2 save
 
-# PM2 START Command
-# --name: Process name
-# --update-env: Updates environment variables on restart
-# -- start app.js: The actual command to run, separated by --
-pm2 start app.js --name "MyWebApp" --update-env --
-pm2 save
+echo "Application startup script finished successfully."
+# Exit with 0 to signal success to CodeDeploy
+exit 0
 
-echo "Application startup script finished."
