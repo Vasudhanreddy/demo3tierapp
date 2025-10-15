@@ -1,31 +1,29 @@
 version: 0.2
+# -----------------------------------------------------------------------------
+# CodeBuild Build Specification
+# FIX: Ensure appspec.yml and all deployment files are packaged correctly.
+# -----------------------------------------------------------------------------
+
 phases:
   install:
     commands:
-      # 1. Navigate to the application root
-      - echo "Changing directory to Myapp"
-      - cd Myapp
-      # 2. Install dependencies (now inside Myapp)
-      - echo "Starting npm install..."
+      # Install ALL required dependencies for the app, so only PM2 needs attention later.
+      - echo "Installing dependencies..."
       - npm install
 
-  pre_build:
-    commands:
-      - echo "Pre-build checks complete."
-      
   build:
     commands:
-      # FIX: Removed 'npm run build' which was causing the failure, 
-      # as your package.json does not contain a 'build' script.
-      - echo "Skipping application build (Node.js backend)."
-      
-  post_build:
-    commands:
-      - echo "Build completed. Preparing CodeDeploy artifact."
+      - echo "Build phase complete."
 
 artifacts:
-  # FIX: Set base-directory to the current directory ('.') which is 'Myapp' 
-  # This packages the source code, node_modules, appspec.yml, and scripts/ for CodeDeploy.
-  base-directory: .
   files:
-    - '**/*'
+    # CRITICAL FIX 1: Package appspec.yml from the Myapp/ source directory
+    - Myapp/appspec.yml
+    # CRITICAL FIX 2: Package all scripts from the Myapp/scripts/ source directory
+    - Myapp/scripts/**
+    # Package all application files (app.js, package.json, etc.)
+    - Myapp/app.js
+    - Myapp/package.json
+  # CRITICAL FIX 3: Discard the 'Myapp/' path prefix so all files land in the artifact root.
+  discard-paths: yes 
+  base-directory: .
