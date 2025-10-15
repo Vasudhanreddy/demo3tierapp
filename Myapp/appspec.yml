@@ -1,33 +1,38 @@
 version: 0.0
 os: linux
 files:
-  # CRITICAL FIX: The source: Myapp/ is assumed to be correct based on artifact analysis.
-  # CRITICAL FIX: Destination changed to lowercase 'myapp' to match all scripts.
+  # CRITICAL FIX 1: Explicitly set the source path to 'Myapp/' to match CodeBuild's base-directory.
   - source: Myapp/
+    # CRITICAL FIX 2: Ensure destination path is lowercase 'myapp' to match scripts.
     destination: /home/ec2-user/myapp
+    
 permissions:
+  # This block explicitly sets ownership and permissions on the deployed files.
   - object: /home/ec2-user/myapp
     pattern: "**"
     owner: ec2-user
     group: ec2-user
+    # Explicitly grant permissions to files and directories
+    mode: 755
     type:
       - file
       - directory
+
 hooks:
+  # REQUIRED: Set permissions before files are copied (runs the cleanup script).
+  BeforeInstall:
+    - location: scripts/change_permissions.sh
+      timeout: 60
+      runas: root 
+      
   ApplicationStop:
-    # Set to root as it performs system-level process management
+    # CRITICAL FIX 3: Must run as ec2-user to stop the PM2 process it started
     - location: scripts/stop_server.sh
       timeout: 300
-      runas: root
-  # CRITICAL FIX: ADDED BeforeInstall hook to ensure the directory exists and has permissions
-  BeforeInstall:
-    # Must run as root to ensure directory creation and chown is successful
-    - location: scripts/change_permissions.sh
-      timeout: 300
-      runas: root
+      runas: ec2-user
+      
   ApplicationStart:
-    # CRITICAL FIX: Changed runas to 'ec2-user' to ensure PM2 state is correctly managed 
-    # and the app is started with the correct ownership.
+    # CRITICAL FIX 4: Must run as ec2-user so npm, pm2, and aws use the correct environment and paths
     - location: scripts/start_server.sh
       timeout: 300
       runas: ec2-user
