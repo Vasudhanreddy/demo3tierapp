@@ -1,55 +1,36 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------
 # start_server.sh - ULTIMATE PATH FIX
-# This version explicitly finds and uses the absolute path for NPM and PM2.
+# This version ensures PM2 is installed locally and executed via its absolute 
+# path within node_modules to bypass all PATH environment issues.
 # -----------------------------------------------------------------------------
 
-APP_DIR="/home/ec2-user/myapp"
+APP_DIR="/home/ec2-user/Myapp"
 
-# 1. Find the absolute path for critical binaries
-# NOTE: This runs 'which' in the simple shell environment.
-NPM_PATH=$(which npm)
-AWS_CLI_PATH=$(which aws)
-
-if [ -z "$NPM_PATH" ]; then
-    echo "FATAL ERROR: NPM not found in the PATH. Check Node/NPM installation."
-    # We must exit, as we can't install dependencies or PM2.
-    exit 1
-fi
-if [ -z "$AWS_CLI_PATH" ]; then
-    echo "WARNING: AWS CLI not found. SSM credential fetch will likely fail."
-fi
-
-# 2. Change to the application directory
+# 1. Change to the application directory
 cd $APP_DIR
 
-# 3. Get DB credentials from AWS Parameter Store.
-# Use the found path if available, otherwise rely on the default PATH (may fail).
+# 2. Get DB credentials from AWS Parameter Store.
+# Relying on 'aws' being in the PATH (must be available in the EC2 user profile).
 echo "Fetching DB Credentials from SSM..."
-if [ -n "$AWS_CLI_PATH" ]; then
-    export DB_HOST=$($AWS_CLI_PATH ssm get-parameter --name "/MyApp/DB_HOST" --query "Parameter.Value" --output text)
-    export DB_USER=$($AWS_CLI_PATH ssm get-parameter --name "/MyApp/DB_USER" --query "Parameter.Value" --output text)
-    export DB_PASSWORD=$($AWS_CLI_PATH ssm get-parameter --name "/MyApp/DB_PASSWORD" --with-decryption --query "Parameter.Value" --output text)
-else
-    echo "Fallback: Attempting credential fetch using simple 'aws' call (HIGH FAILURE RISK)."
-    export DB_HOST=$(aws ssm get-parameter --name "/MyApp/DB_HOST" --query "Parameter.Value" --output text)
-    export DB_USER=$(aws ssm get-parameter --name "/MyApp/DB_USER" --query "Parameter.Value" --output text)
-    export DB_PASSWORD=$(aws ssm get-parameter --name "/MyApp/DB_PASSWORD" --with-decryption --query "Parameter.Value" --output text)
-fi
+export DB_HOST=$(aws ssm get-parameter --name "/MyApp/DB_HOST" --query "Parameter.Value" --output text)
+export DB_USER=$(aws ssm get-parameter --name "/MyApp/DB_USER" --query "Parameter.Value" --output text)
+export DB_PASSWORD=$(aws ssm get-parameter --name "/MyApp/DB_PASSWORD" --with-decryption --query "Parameter.Value" --output text)
 
+# 3. Install dependencies and PM2 locally
+echo "Installing application dependencies and PM2 locally..."
+# npm install runs first to get express and mysql
+npm install
+# Install PM2 locally so we can run it from the local binary path
+npm install pm2 --silent
 
-# 4. Install dependencies using the absolute NPM path
-echo "Installing application dependencies..."
-$NPM_PATH install
+# Define the local binary path
+PM2_LOCAL_BIN="./node_modules/.bin/pm2"
 
-# 5. Install PM2 globally using the absolute NPM path
-echo "Installing PM2 globally..."
-$NPM_PATH install -g pm2
-
-# 6. Start the application with PM2
-echo "Starting application with PM2..."
-# PM2 is installed globally, so it should now be in the shell's PATH for the ec2-user.
-pm2 start app.js --name "MyWebApp" --update-env
-pm2 save
+# 4. Start the application using the LOCAL PM2 path
+echo "Starting application with PM2 using local binary path: ${PM2_LOCAL_BIN}"
+# Use the guaranteed local path to execute PM2
+$PM2_LOCAL_BIN start app.js --name "MyWebApp" --update-env
+$PM2_LOCAL_BIN save
 
 echo "Application startup script finished successfully."
